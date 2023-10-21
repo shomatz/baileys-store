@@ -1,4 +1,5 @@
-import type { AuthenticationCreds, SignalDataTypeMap } from '@whiskeysockets/baileys';
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+import type { AuthenticationCreds, AuthenticationState, SignalDataSet, SignalDataTypeMap } from '@whiskeysockets/baileys';
 import { proto } from '@whiskeysockets/baileys';
 import { BufferJSON, initAuthCreds } from '@whiskeysockets/baileys';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime';
@@ -6,7 +7,7 @@ import { useLogger, usePrisma } from './shared';
 
 const fixId = (id: string) => id.replace(/\//g, '__').replace(/:/g, '-');
 
-export async function useSession(sessionId: string) {
+export async function useSession(sessionId: string): Promise<{state: AuthenticationState; saveCreds: () => Promise<void>}> {
   const model = usePrisma().session;
   const logger = useLogger();
 
@@ -59,7 +60,7 @@ export async function useSession(sessionId: string) {
     state: {
       creds,
       keys: {
-        get: async (type: keyof SignalDataTypeMap, ids: string[]) => {
+        get: async(type, ids) => {
           const data: { [key: string]: SignalDataTypeMap[typeof type] } = {};
           await Promise.all(
             ids.map(async (id) => {
@@ -72,11 +73,12 @@ export async function useSession(sessionId: string) {
           );
           return data;
         },
-        set: async (data: any) => {
+        set: async (data: SignalDataSet) => {
           const tasks: Promise<void>[] = [];
-
           for (const category in data) {
+            //@ts-ignore
             for (const id in data[category]) {
+              //@ts-ignore
               const value = data[category][id];
               const sId = `${category}-${id}`;
               tasks.push(value ? write(value, sId) : del(sId));
