@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import type { AuthenticationCreds, AuthenticationState, SignalDataSet, SignalDataTypeMap } from '@whiskeysockets/baileys';
+import type { AuthenticationCreds, AuthenticationState, SignalDataSet, SignalDataTypeMap, SignalKeyStore } from '@whiskeysockets/baileys';
 import { proto } from '@whiskeysockets/baileys';
 import { BufferJSON, initAuthCreds } from '@whiskeysockets/baileys';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime';
@@ -55,38 +55,39 @@ export async function useSession(sessionId: string): Promise<{state: Authenticat
   };
 
   const creds: AuthenticationCreds = (await read('creds')) || initAuthCreds();
+  const keys: SignalKeyStore = {
+    get: async(type, ids) => {
+      const data: { [key: string]: SignalDataTypeMap[typeof type] } = {};
+      await Promise.all(
+        ids.map(async (id) => {
+          let value = await read(`${type}-${id}`);
+          if (type === 'app-state-sync-key' && value) {
+            value = proto.Message.AppStateSyncKeyData.fromObject(value);
+          }
+          data[id] = value;
+        })
+      );
+      return data;
+    },
+    set: async (data: SignalDataSet) => {
+      const tasks: Promise<void>[] = [];
+      for (const category in data) {
+        //@ts-ignore
+        for (const id in data[category]) {
+          //@ts-ignore
+          const value = data[category][id];
+          const sId = `${category}-${id}`;
+          tasks.push(value ? write(value, sId) : del(sId));
+        }
+      }
+      await Promise.all(tasks);
+    },
+  };
 
   return {
     state: {
       creds,
-      keys: {
-        get: async(type, ids) => {
-          const data: { [key: string]: SignalDataTypeMap[typeof type] } = {};
-          await Promise.all(
-            ids.map(async (id) => {
-              let value = await read(`${type}-${id}`);
-              if (type === 'app-state-sync-key' && value) {
-                value = proto.Message.AppStateSyncKeyData.fromObject(value);
-              }
-              data[id] = value;
-            })
-          );
-          return data;
-        },
-        set: async (data: SignalDataSet) => {
-          const tasks: Promise<void>[] = [];
-          for (const category in data) {
-            //@ts-ignore
-            for (const id in data[category]) {
-              //@ts-ignore
-              const value = data[category][id];
-              const sId = `${category}-${id}`;
-              tasks.push(value ? write(value, sId) : del(sId));
-            }
-          }
-          await Promise.all(tasks);
-        },
-      },
+      keys,
     },
     saveCreds: () => write(creds, 'creds'),
   };
